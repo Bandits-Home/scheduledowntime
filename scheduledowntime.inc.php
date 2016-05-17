@@ -33,7 +33,7 @@ function scheduledowntime_component_init()
 
         // need a name
         COMPONENT_NAME => $scheduledowntime_component_name,
-        COMPONENT_VERSION => '1.2',
+        COMPONENT_VERSION => '1.5',
         COMPONENT_DATE => '3/223/2015',
 
         // informative information
