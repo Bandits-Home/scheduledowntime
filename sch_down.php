@@ -54,7 +54,6 @@ function recurringdowntime_array_to_cfg($arr)
     }elseif ($arr["schedule_type"] == "service"){
 	$host = $arr["host_name"];
 	$service = $arr["service_description"];
-	//SCHEDULE_SVC_DOWNTIME;host1;service1;1110741500;1110748700;0;0;7200;Some One;Some Downtime Comment\n
 	$cfg_str .= "SCHEDULE_SVC_DOWNTIME;$host;$service;$start;$end;1;0;$duration;$user;$comment";
     }elseif ($arr["schedule_type"] == "hostgroup"){
         $hg = $arr["hostgroup_name"];
@@ -84,10 +83,24 @@ function recurringdowntime_write_cfg($cfg)
     } else {
         $cfg_str = $cfg;
     }
+    if (file_exists('/usr/local/nagios/var/rw/nagios.cmd') && filetype('/usr/local/nagios/var/rw/nagios.cmd')=="fifo") {
     $fh = fopen('/usr/local/nagios/var/rw/nagios.cmd', "a") or die(gettext("Error: Could not open downtime config file for writing."));
     fwrite($fh, $cfg_str);
     fclose($fh);
     return true;
+    }
+    else {
+	sleep(30);
+	if (file_exists('/usr/local/nagios/var/rw/nagios.cmd') && filetype('/usr/local/nagios/var/rw/nagios.cmd')=="fifo") {
+		$fh = fopen('/usr/local/nagios/var/rw/nagios.cmd', "a") or die(gettext("Error: Could not open downtime config file for writing."));
+		fwrite($fh, $cfg_str);
+		fclose($fh);
+		return true;
+	}
+	else {
+		return false; 
+	}
+    }
 }
 
 /**
@@ -163,7 +176,6 @@ function recurringdowntime_add_downtime($edit = false) {
         $form_mode = $request["type"];
         // host or host_name should work
         $formvars["host_name"] = grab_request_var("host_name", grab_request_var("host", ""));
-        //$formvars["host_name"] = isset($request["host_name"]) ? $request["host_name"] : "";
         $formvars["service_description"] = grab_request_var("service_description", grab_request_var("service", ""));
         $formvars["hostgroup_name"] = isset($request["hostgroup_name"]) ? $request["hostgroup_name"] : "";
         $formvars["servicegroup_name"] = isset($request["servicegroup_name"]) ? $request["servicegroup_name"] : "";
@@ -179,13 +191,8 @@ function recurringdowntime_add_downtime($edit = false) {
             if (is_readonly_user(0)) {
                 $errors[] = gettext("Read only users cannot add schedule recurring downtime");
             }
-//            if (empty($request["hosts"]))
-//                $errors[] = gettext("Please enter a host name.");
-//            else if (!is_authorized_for_host(0, $request["host_name"])) {
-//                $errors[] = gettext("The host you specified is not valid for your user account.");
-//            }
         } else if ($form_mode == "service") {
-            if (is_readonly_user(0)) {
+	    if (is_readonly_user(0)) {
                 $errors[] = gettext("Read only users cannot add schedule recurring downtime");
             }
             if (empty($request["host_name"]))
@@ -262,48 +269,82 @@ function recurringdowntime_add_downtime($edit = false) {
             } else {
                 $sid = recurringdowntime_generate_sid();
             }
-
+	    @apache_setenv('no-gzip', 1);
+	    @ini_set('zlib.output_compression', 0);
+	    @ini_set('implicit_flush', 1);
+	    for ($i = 0; $i < ob_get_level(); $i++) { ob_end_flush(); }
+	    ob_implicit_flush(1);
+	    ob_start();
+	    echo "<font color=red><b>Please do not navigate away from this page until complete!</b></font><br><br>";
+	    ob_flush();
             if ($form_mode == "host") {
                 $new_cfg["schedule_type"] = "host";
-//                $new_cfg["host_name"] = $request["host_name"];
 		foreach($request["hosts"] as $value) {
+			$sid = recurringdowntime_generate_sid();
 			$new_cfg["host_name"] = $value;
 			$cfg[$sid] = $new_cfg;
-			recurringdowntime_write_cfg($new_cfg);
-			sleep(2);
-			//echo $value;
+			echo "Adding downtime for $value and services(if selected).....:";
+			$resulthost=recurringdowntime_write_cfg($new_cfg);
+			if ($resulthost) {
+				echo "<font color=green><b>OK</b></font><br>";
+			} else {
+				echo "<font color=red><b>FAILED</b></font><br>";
+			}
+			ob_flush();
+			sleep(1);
 		}
+		//if 
+		$result=true;
+		//$result=false;
             } elseif ($form_mode == "service") {
                 $new_cfg["schedule_type"] = "service";
                 $new_cfg["service_description"] = $request["service_description"];
                 $new_cfg["host_name"] = $request["host_name"];
 		$cfg[$sid] = $new_cfg;
-		//print_r($new_cfg);
-		recurringdowntime_write_cfg($new_cfg);
+		$tmp1=$request["service_description"];
+		$tmp2=$request["host_name"];
+		echo "Adding downtime for $tmp1 on $tmp2.....:";
+		$result=recurringdowntime_write_cfg($new_cfg);
+                if ($result) {
+	                echo "<font color=green><b>OK</b></font><br>";
+                } else {
+                        echo "<font color=red><b>FAILED</b></font><br>";
+                }
+                ob_flush();
             } elseif ($form_mode == "servicegroup") {
                 $new_cfg["schedule_type"] = "servicegroup";
                 $new_cfg["servicegroup_name"] = $request["servicegroup_name"];
 		$cfg[$sid] = $new_cfg;
-		recurringdowntime_write_cfg($new_cfg);
+                $tmp1=$request["servicegroup_name"];
+                echo "Adding downtime for $tmp1.....:";
+		$result=recurringdowntime_write_cfg($new_cfg);
+                if ($result) {
+                        echo "<font color=green><b>OK</b></font><br>";
+                } else {
+                        echo "<font color=red><b>FAILED</b></font><br>";
+                }
+                ob_flush();
             } elseif ($form_mode == "hostgroup") {
                 $new_cfg["schedule_type"] = "hostgroup";
                 $new_cfg["hostgroup_name"] = $request["hostgroup_name"];
 		$cfg[$sid] = $new_cfg;
-		recurringdowntime_write_cfg($new_cfg);
+                $tmp1=$request["hostgroup_name"];
+                echo "Adding downtime for $tmp1 and services(if selected).....:";
+		$result=recurringdowntime_write_cfg($new_cfg);
+                if ($result) {
+                        echo "<font color=green><b>OK</b></font><br>";
+                } else {
+                        echo "<font color=red><b>FAILED</b></font><br>";
+                }
+                ob_flush();
             }
 
-            //$cfg[$sid] = $new_cfg;
-            //recurringdowntime_write_cfg($new_cfg);
-	    ?><h1>Downtime(s) created</h1>
-	    <?php
-            //if ($request["return"]) {
-            //    $go = $request["return"];
-            //} else {
-            //    $go = $_SERVER["PHP_SELF"];
-            //}
-            //echo "LOCATION: $go";
-            //exit;
-            //header("Location: $go");
+	    if ($result) {
+		echo "<font color=green><br><br><b>Completed, it may take a few minutes for the downtimes to show up.  You may now browse away from this page!</b></font>";
+	    } else {
+		echo "<font color=red><b>Something went wrong, please look at errors!</b></font>";
+	    }
+	    ob_end_flush();
             exit;
         } else {
             $formvars = $request;
@@ -362,72 +403,9 @@ var myfilter = new filterlist(document.myform.hosts);
     </tr>
 
 <?php } elseif ($form_mode == "service") { ?>
-    <tr>
-        <td valign="top">
-            <label for="hostBox"><?php echo gettext("Host"); ?>:</label>
-            <br class="nobr"/>
-        </td>
-        <td>
-            <?php if ($edit || (isset($_GET["host_name"]) || isset($_GET["host"]))) { ?>
-            <input disabled="disabled" id="hostBox" class="textfield" type="text" name="host_name"
-                   value="<?php echo encode_form_val($formvars["host_name"]); ?>" size="25"/>
-            <input type="hidden" name="host_name" value="<?php echo encode_form_val($formvars["host_name"]); ?>"/>
-            <?php } else { ?>
-            <input id="hostBox" class="textfield" type="text" name="host_name"
-                   value="<?php echo encode_form_val($formvars["host_name"]); ?>" size="25"/>
-                <script type="text/javascript">
-                    $(document).ready(function () {
-                        $("#hostBox").each(function () {
-                            $(this).autocomplete({source: suggest_url + '?type=host', minLength: 1});
-
-                            $(this).blur(function () {
-                                var hostname = $("#hostBox").val();
-                            });
-                            $(this).change(function () {
-                                var hostname = $("#hostBox").val();
-                            });
-
-                        });
-                    });
-                </script>
-            <?php } ?>
-            <br><?php echo gettext("The host associated with this schedule."); ?><br><br>
-        </td>
-    </tr>
-    <tr>
-        <td valign="top">
-            <label for="serviceBox"><?php echo gettext("Service"); ?>:</label>
-            <br class="nobr"/>
-        </td>
-        <td>
-            <input id="serviceBox" class="textfield" type="text" name="service_description"
-                   value="<?php echo encode_form_val($formvars["service_description"]); ?>" size="25"/>
-            <br><?php echo gettext("Optional service associated with this schedule."); ?>
-            <?php
-            if (is_admin()) {
-                ?>
-                <?php echo gettext("A wildcard can be used to specify multiple matches"); ?> (e.g. 'HTTP*').
-            <?php
-            }
-            ?>
-            <br><br>
-            <script type="text/javascript">
-                $(document).ready(function () {
-                    $("#serviceBox").each(function () {
-                        $(this).focus(function () {
-                            var hostname = $("#hostBox").val();
-                            // TODO - we should destroy the old autocomplete here (but the function doesn't exist) , because multiple calls get made if the user goes back and changes the host name...
-                            $(this).autocomplete({
-                                source: suggest_url + '?type=services&host=' + hostname,
-                                minLength: 1
-                            });
-                        });
-                    });
-                });
-            </script>
-
-        </td>
-    </tr>
+<?php
+header("Location: nagiosxi/includes/components/xicore/downtime.php?cmd=schedule&type=service");
+?>
 <?php } elseif ($form_mode == "servicegroup") { ?>
     <tr>
         <td valign="top">
@@ -617,17 +595,6 @@ function recurringdowntime_show_downtime()
     <h1>Pick a Downtime Type</h1>
 
     <?php
-    if (!isset($request["host"]) && !isset($request["hostgroup"]) && !isset($request["servicegroup"])) {
-        ?>
-        <!--
-        <div><a href="<?php echo htmlentities($_SERVER["PHP_SELF"]); ?>?mode=add&type=host&return=<?php echo urlencode($_SERVER["REQUEST_URI"]); ?>">+ Add Host Downtime Schedule</a></div>
-        <div><a href="<?php echo htmlentities($_SERVER["PHP_SELF"]); ?>?mode=add&type=hostgroup&return=<?php echo urlencode($_SERVER["REQUEST_URI"]); ?>">+ Add Hostgroup Downtime Schedule</a></div>
-        <div><a href="<?php echo htmlentities($_SERVER["PHP_SELF"]); ?>?mode=add&type=servicegroup&return=<?php echo urlencode($_SERVER["REQUEST_URI"]); ?>">+ Add Servicegroup Downtime Schedule</a></div>
-        //-->
-        <p>
-    <?php } ?>
-
-    <?php
     if ($showall) {
         ?>
         <script type="text/javascript">
@@ -653,29 +620,29 @@ function recurringdowntime_show_downtime()
     <?php if (!is_readonly_user(0)) { ?>
     <div style="clear: left; margin: 0 0 10px 0;"><a href="<?php echo htmlentities($_SERVER["PHP_SELF"]); ?>?mode=add&type=host&return=<?php echo urlencode($_SERVER["REQUEST_URI"]); ?>%23host-tab&nsp=<?php echo get_nagios_session_protector_id(); ?>"><img src="<?php echo theme_image("add.png"); ?>"> <?php echo gettext("Add a Downtime"); ?></a></div><?php } ?> 
     </div>
-    <div style="margin-top:20px;"></div>
 <!-- Host Tab End -->
 
 <!-- Service Tab Start -->
     <div id='service-tab'>
+    <div style="margin-top:20px;"></div>
     <div class="infotable_title" style="float:left"><?php echo $service_tbl_header; ?></div>
     <?php if (!is_readonly_user(0)) { ?>
-    <div style="clear: left; margin: 0 0 10px 0;"><a href="<?php echo htmlentities($_SERVER["PHP_SELF"]); ?>?mode=add&type=service&return=<?php echo urlencode($_SERVER["REQUEST_URI"]); ?>%23service-tab&nsp=<?php echo get_nagios_session_protector_id(); ?>"><img src="<?php echo theme_image("add.png"); ?>"> <?php echo gettext("Add a Downtime"); ?></a></div><?php } ?>
+    <div style="clear: left; margin: 0 0 10px 0;"><a href="http://<?php echo $_SERVER["HTTP_HOST"]; ?>/nagiosxi/includes/components/xicore/downtime.php?cmd=schedule&type=service"><img src="<?php echo theme_image("add.png"); ?>"> <?php echo gettext("Add a Downtime"); ?></a></div><?php } ?>
     </div>
-    <div style="margin-top:20px;"></div>
 <!-- ServiceHost Tab End -->
 
 <!-- Hostgroup Tab Start -->
     <div id='hostgroup-tab'>
+    <div style="margin-top:20px;"></div>
     <div class="infotable_title" style="float:left"><?php echo $hostgroup_tbl_header; ?></div>
     <?php if (!is_readonly_user(0)) { ?>
     <div style="clear: left; margin: 0 0 10px 0;"><a href="<?php echo htmlentities($_SERVER["PHP_SELF"]); ?>?mode=add&type=hostgroup&return=<?php echo urlencode($_SERVER["REQUEST_URI"]); ?>%23hostgroup-tab&nsp=<?php echo get_nagios_session_protector_id(); ?>"><img src="<?php echo theme_image("add.png"); ?>"> <?php echo gettext("Add a Downtime"); ?></a></div><?php }  ?>
     </div>
-    <div style="margin-top:20px"></div>
 <!-- Hostgroup Tab End -->
 
 <!-- Servicegroup Tab Start -->
     <div id='servicegroup-tab'>
+    <div style="margin-top:20px;"></div>
     <div class="infotable_title" style="float:left"><?php echo $servicegroup_tbl_header; ?></div>
     <?php if (!is_readonly_user(0)) { ?>
     <div style="clear: left; margin: 0 0 10px 0;"><a href="<?php echo htmlentities($_SERVER["PHP_SELF"]); ?>?mode=add&type=servicegroup&return=<?php echo urlencode($_SERVER["REQUEST_URI"]); ?>%23servicegroup-tab&nsp=<?php echo get_nagios_session_protector_id(); ?>"><img src="<?php echo theme_image("add.png"); ?>"> <?php echo gettext("Add a Downtime"); ?></a></div><?php } ?>
