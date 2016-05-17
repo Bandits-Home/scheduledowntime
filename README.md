@@ -9,6 +9,7 @@ This adds more options and helps to eliminate human errors when adding downtimes
 
       Properly checking the nagios.cmd file before writing, will wait and retry in 30 seconds one time.
       Better testing the writing of the downtime and output of feedback to end user
+      Switched service downtime creation to use built in XI service downtime page
       
 1.2 - (??/??/2015)Bug fixes
 
